@@ -43,6 +43,57 @@ func vec_add3x1(vec1, vec2 [3]float64) [3]float64 {
 func vec_scale3x1(vec [3]float64, scal float64) [3]float64 {
 	return [3]float64{vec[0] * scal, vec[1] * scal, vec[2] * scal}
 }
+func outer_mult_vec3x3(vec1, vec2 [3]float64) [3][3]float64 {
+	var result [3][3]float64
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 3; j++ {
+			result[i][j] = vec1[i] * vec2[j]
+		}
+	}
+	return result
+}
+func sum_of_all_elements_tens3x3(tensor [3][3]float64) float64 {
+	sum := 0.0
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 3; j++ {
+			sum += tensor[i][j]
+		}
+	}
+	return sum
+}
+func sign_of_num(x float64) float64 {
+	if x >= 0.0 {
+		return 1.0
+	} else {
+		return -1.0
+	}
+}
+func matr_sum3x3(matr1, matr2 [3][3]float64) [3][3]float64 {
+	var result [3][3]float64
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 3; j++ {
+			result[i][j] = matr1[i][j] + matr2[i][j]
+		}
+	}
+	return result
+}
+
+func matr_and_number_mul3x3(matr [3][3]float64, number float64) [3][3]float64 {
+	return [3][3]float64{
+		{matr[0][0] * number, matr[0][1] * number, matr[0][2] * number},
+		{matr[1][0] * number, matr[1][1] * number, matr[1][2] * number},
+		{matr[2][0] * number, matr[2][1] * number, matr[2][2] * number},
+	}
+}
+func double_contract3x3(a, b [3][3]float64) float64 {
+	sum := 0.0
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 3; j++ {
+			sum += a[i][j] * b[i][j]
+		}
+	}
+	return sum
+}
 
 //math Block generic format
 
@@ -113,6 +164,7 @@ func matr_vec_mul(a [][]float64, vec []float64) []float64 {
 	return result
 }
 
+// end of math block
 func build_elastic_tensor(c11, c12, c44 float64) [3][3][3][3]float64 {
 	var tensor [3][3][3][3]float64
 	for i := 0; i < 3; i++ {
@@ -165,7 +217,18 @@ func compute_interparticle_force(stress_main_particle_tens, stress_neighbor_part
 	return vec_scale3x1(vec_add3x1(force_main, force_neighbor), 0.5)
 }
 
-func compute_plastic_velocity_gradient()
+func compute_plastic_velocity_gradient(stress_tens [3][3]float64, burgers_directions, normal_direction [12][3]float64, critical_stress, gamma_0, exponent float64) [3][3]float64 {
+	var plastic_gradient [3][3]float64
+	for system := 0; system < 12; system++ {
+		slip_tensor := outer_mult_vec3x3(burgers_directions[system], normal_direction[system])
+		resolved_stress := double_contract3x3(stress_tens, slip_tensor)
+		if math.Abs(resolved_stress) > critical_stress {
+			plastic_rate := (gamma_0 * math.Pow((math.Abs(resolved_stress)/critical_stress), exponent) * sign_of_num(resolved_stress))
+			plastic_gradient = matr_sum3x3(plastic_gradient, matr_and_number_mul3x3(slip_tensor, plastic_rate))
+		}
+	}
+	return plastic_gradient
+}
 func main() {
 	const rho = 7800.0
 
