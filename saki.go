@@ -94,6 +94,18 @@ func double_contract3x3(a, b [3][3]float64) float64 {
 	}
 	return sum
 }
+func to_radians(degrees float64) float64 {
+	return degrees * (math.Pi / 180.0)
+}
+
+func transponir_tens3x3(tens [3][3]float64) [3][3]float64 {
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 3; j++ {
+			tens[i][j], tens[j][i] = tens[j][i], tens[i][j]
+		}
+	}
+	return tens
+}
 
 //math Block generic format
 
@@ -229,6 +241,99 @@ func compute_plastic_velocity_gradient(stress_tens [3][3]float64, burgers_direct
 	}
 	return plastic_gradient
 }
+
+//----------------------Particle_class-------------------------------
+type Particle struct {
+	Index  int
+	X_ref  [3]float64
+	X_curr [3]float64
+
+	Phase_id int
+
+	U_curr [3]float64
+	U_prev [3]float64
+
+	Force [3]float64
+
+	F   [3][3]float64
+	F_p [3][3]float64
+
+	K_tensor [3][3]float64
+	K_inv    [3][3]float64
+
+	Stress [3][3]float64
+
+	Angle float64
+
+	R [3][3]float64
+
+	Burgers_vec     [12][3]float64
+	Normal_vec      [12][3]float64
+	Elastic_tensor  [3][3][3][3]float64
+	Critical_stress float64
+}
+
+func new_particle(index, phase_id int, r, f, f_p [3][3]float64, ferrite_elastic_tensor, austenite_elastic_tensor [3][3][3][3]float64, critical_stress, angle, tau_c_ferrite, tau_c_austenite float64, bBCC, nBCC, bFCC, nFCC [12][3]float64, x [3]float64) Particle {
+	angle_rad := to_radians(angle)
+
+	cos_A := math.Cos(angle_rad)
+	sin_A := math.Sin(angle_rad)
+
+	r = [3][3]float64{
+		{cos_A, -sin_A, 0.0},
+		{-sin_A, cos_A, 0.0},
+		{0.0, 0.0, 1.0},
+	}
+
+	var I [3][3]float64
+	for i := 0; i < 3; i++ {
+		I[i][i] = 1.0
+	}
+	const (
+		FERRITE   = 0
+		AUSTENITE = 1
+	)
+	var (
+		b_rot       [12][3]float64
+		n_rot       [12][3]float64
+		elastic_rot [3][3][3][3]float64
+		tau_c       float64
+	)
+	if phase_id == FERRITE {
+		for i := 0; i < 12; i++ {
+			b_rot[i] = matr_vec_mul3x1(r, bBCC[i])
+			n_rot[i] = matr_vec_mul3x1(r, nBCC[i])
+		}
+		elastic_rot = rotate_elas_tens(ferrite_elastic_tensor, r)
+
+		tau_c = tau_c_ferrite
+
+	} else {
+		for i := 0; i < 12; i++ {
+			b_rot[i] = matr_vec_mul3x1(r, bFCC[i])
+			n_rot[i] = matr_vec_mul3x1(r, nFCC[i])
+		}
+		elastic_rot = rotate_elas_tens(austenite_elastic_tensor, r)
+
+		tau_c = tau_c_austenite
+	}
+	return Particle{
+		Index:           index,
+		X_ref:           x_ref,
+		X_curr:          x_ref, // В начальный момент x_curr = x_ref
+		Phase_id:        phase_id,
+		Angle:           angle_deg,
+		R:               rotR,
+		F:               identity3x3,
+		F_p:             identity3x3,
+		Burgers_vec:     b_rot,
+		Normal_vec:      n_rot,
+		Elastic_tensor:  rotated_elastic,
+		Critical_stress: critical_stress,
+		// Поля Force, U_curr, U_prev, K_tensor, K_inv, Stress зануляются автоматически
+	}
+}
+
 func main() {
 	const rho = 7800.0
 
