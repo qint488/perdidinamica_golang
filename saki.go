@@ -273,7 +273,7 @@ type Particle struct {
 	Critical_stress float64
 }
 
-func new_particle(index, phase_id int, r, f, f_p [3][3]float64, ferrite_elastic_tensor, austenite_elastic_tensor [3][3][3][3]float64, critical_stress, angle, tau_c_ferrite, tau_c_austenite float64, bBCC, nBCC, bFCC, nFCC [12][3]float64, x [3]float64) Particle {
+func new_particle(index, phase_id int, r, f, f_p [3][3]float64, ferrite_elastic_tensor, austenite_elastic_tensor [3][3][3][3]float64, critical_stress, angle, tau_c_ferrite, tau_c_austenite float64, bBCC, nBCC, bFCC, nFCC [12][3]float64, x_ref, x_curr [3]float64) Particle {
 	angle_rad := to_radians(angle)
 
 	cos_A := math.Cos(angle_rad)
