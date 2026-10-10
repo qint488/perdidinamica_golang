@@ -1,9 +1,24 @@
 package main
 
-import "math"
+import (
+	"fmt"
+	"math"
+	"os"
+)
 
-//import "fmt"
-//math Block 3x3 or 3x1 format
+const rho = 7800.0
+
+const c11_ferrite = 230e9
+const c12_ferrite = 135e9
+const c44_ferrite = 115e9
+const tau_c_ferrite = 150e6
+
+const c11_austenite = 198e9
+const c12_austenite = 125e9
+const c44_austenite = 122e9
+const tau_c_austenite = 100e6
+
+// math Block 3x3 or 3x1 format
 func normalize3x1(v [3]float64) [3]float64 {
 	length := math.Sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2])
 	return [3]float64{v[0] / length, v[1] / length, v[2] / length}
@@ -38,6 +53,10 @@ func matr_vec_mul3x1(a [3][3]float64, vec [3]float64) [3]float64 {
 
 func vec_add3x1(vec1, vec2 [3]float64) [3]float64 {
 	return [3]float64{vec1[0] + vec2[0], vec1[1] + vec2[1], vec1[2] + vec2[2]}
+}
+
+func vec_minus3x1(vec1, vec2 [3]float64) [3]float64 {
+	return [3]float64{vec1[0] - vec2[0], vec1[1] - vec2[1], vec1[2] - vec2[2]}
 }
 
 func vec_scale3x1(vec [3]float64, scal float64) [3]float64 {
@@ -243,7 +262,7 @@ func compute_plastic_velocity_gradient(stress_tens [3][3]float64, burgers_direct
 	return plastic_gradient
 }
 
-//----------------------Bond_class-------------------------------
+// ----------------------Bond_class-------------------------------
 type Bond struct {
 	particle1        Particle
 	particle2        Particle
@@ -287,9 +306,9 @@ func new_bond(particle1, particle2 Particle) Bond {
 
 //----------------------Bond_class-------------------------------
 
-//----------------------Particle_class-------------------------------
+// ----------------------Particle_class-------------------------------
 type Particle struct {
-	Index  int
+	Index  int64
 	X_ref  [3]float64
 	X_curr [3]float64
 
@@ -316,74 +335,130 @@ type Particle struct {
 	Normal_vec      [12][3]float64
 	Elastic_tensor  [3][3][3][3]float64
 	Critical_stress float64
+	NeighborsIdx    []int64
 }
 
-func new_particle(index, phase_id int, r, f, f_p [3][3]float64, ferrite_elastic_tensor, austenite_elastic_tensor [3][3][3][3]float64, critical_stress, angle, tau_c_ferrite, tau_c_austenite float64, bBCC, nBCC, bFCC, nFCC [12][3]float64, x_ref, x_curr [3]float64) Particle {
-	angle_rad := to_radians(angle)
+// func new_particle(index, phase_id int, r, f, f_p [3][3]float64, ferrite_elastic_tensor, austenite_elastic_tensor [3][3][3][3]float64, critical_stress, angle, tau_c_ferrite, tau_c_austenite float64, bBCC, nBCC, bFCC, nFCC [12][3]float64, x_ref, x_curr [3]float64) Particle {
+// 	angle_rad := to_radians(angle)
 
-	cos_A := math.Cos(angle_rad)
-	sin_A := math.Sin(angle_rad)
+// 	cos_A := math.Cos(angle_rad)
+// 	sin_A := math.Sin(angle_rad)
 
-	r = [3][3]float64{
+// 	r = [3][3]float64{
+// 		{cos_A, -sin_A, 0.0},
+// 		{sin_A, cos_A, 0.0},
+// 		{0.0, 0.0, 1.0},
+// 	}
+
+// 	var I [3][3]float64
+// 	for i := 0; i < 3; i++ {
+// 		I[i][i] = 1.0
+// 	}
+// 	f = I
+// 	f_p = I
+// 	const (
+// 		FERRITE   = 0
+// 		AUSTENITE = 1
+// 	)
+// 	var (
+// 		b_rot       [12][3]float64
+// 		n_rot       [12][3]float64
+// 		elastic_rot [3][3][3][3]float64
+// 		tau_c       float64
+// 	)
+// 	if phase_id == FERRITE {
+// 		for i := 0; i < 12; i++ {
+// 			b_rot[i] = matr_vec_mul3x1(r, bBCC[i])
+// 			n_rot[i] = matr_vec_mul3x1(r, nBCC[i])
+// 		}
+// 		elastic_rot = rotate_elas_tens(ferrite_elastic_tensor, r)
+
+// 		tau_c = tau_c_ferrite
+
+// 	} else {
+// 		for i := 0; i < 12; i++ {
+// 			b_rot[i] = matr_vec_mul3x1(r, bFCC[i])
+// 			n_rot[i] = matr_vec_mul3x1(r, nFCC[i])
+// 		}
+// 		elastic_rot = rotate_elas_tens(austenite_elastic_tensor, r)
+
+// 		tau_c = tau_c_austenite
+// 	}
+// 	return Particle{
+// 		Index:           index,
+// 		X_ref:           x_ref,
+// 		X_curr:          x_ref,
+// 		Phase_id:        phase_id,
+// 		Angle:           angle_rad,
+// 		R:               r,
+// 		F:               f,
+// 		F_p:             f_p,
+// 		Burgers_vec:     b_rot,
+// 		Normal_vec:      n_rot,
+// 		Elastic_tensor:  elastic_rot,
+// 		Critical_stress: tau_c,
+// 		// Force, U_curr, U_prev, K_tensor, K_inv, Stress зануляются автоматически
+// 	}
+// }
+
+func new_particle(index int64, x_ref [3]float64, phase_id int) Particle {
+	var I [3][3]float64
+	for i := 0; i < 3; i++ {
+		I[i][i] = 1.0
+	}
+	return Particle{
+		Index:    index,
+		X_ref:    x_ref,
+		X_curr:   x_ref,
+		Phase_id: phase_id,
+		F:        I,
+		F_p:      I,
+	}
+}
+func (p *Particle) InitPhysics(angle float64, ferrite_tens, austenite_tens [3][3][3][3]float64, bBCC, nBCC, bFCC, nFCC [12][3]float64) {
+	p.Angle = to_radians(angle)
+	cos_A := math.Cos(p.Angle)
+	sin_A := math.Sin(p.Angle)
+
+	p.R = [3][3]float64{
 		{cos_A, -sin_A, 0.0},
 		{sin_A, cos_A, 0.0},
 		{0.0, 0.0, 1.0},
 	}
 
-	var I [3][3]float64
-	for i := 0; i < 3; i++ {
-		I[i][i] = 1.0
-	}
-	f = I
-	f_p = I
-	const (
-		FERRITE   = 0
-		AUSTENITE = 1
-	)
-	var (
-		b_rot       [12][3]float64
-		n_rot       [12][3]float64
-		elastic_rot [3][3][3][3]float64
-		tau_c       float64
-	)
-	if phase_id == FERRITE {
+	if p.Phase_id == 0 { // Феррит
 		for i := 0; i < 12; i++ {
-			b_rot[i] = matr_vec_mul3x1(r, bBCC[i])
-			n_rot[i] = matr_vec_mul3x1(r, nBCC[i])
+			p.Burgers_vec[i] = matr_vec_mul3x1(p.R, bBCC[i])
+			p.Normal_vec[i] = matr_vec_mul3x1(p.R, nBCC[i])
 		}
-		elastic_rot = rotate_elas_tens(ferrite_elastic_tensor, r)
-
-		tau_c = tau_c_ferrite
-
-	} else {
+		p.Elastic_tensor = rotate_elas_tens(ferrite_tens, p.R)
+		p.Critical_stress = tau_c_ferrite
+	} else { // Аустенит
 		for i := 0; i < 12; i++ {
-			b_rot[i] = matr_vec_mul3x1(r, bFCC[i])
-			n_rot[i] = matr_vec_mul3x1(r, nFCC[i])
+			p.Burgers_vec[i] = matr_vec_mul3x1(p.R, bFCC[i])
+			p.Normal_vec[i] = matr_vec_mul3x1(p.R, nFCC[i])
 		}
-		elastic_rot = rotate_elas_tens(austenite_elastic_tensor, r)
-
-		tau_c = tau_c_austenite
+		p.Elastic_tensor = rotate_elas_tens(austenite_tens, p.R)
+		p.Critical_stress = tau_c_austenite
 	}
-	return Particle{
-		Index:           index,
-		X_ref:           x_ref,
-		X_curr:          x_ref,
-		Phase_id:        phase_id,
-		Angle:           angle_rad,
-		R:               r,
-		F:               f,
-		F_p:             f_p,
-		Burgers_vec:     b_rot,
-		Normal_vec:      n_rot,
-		Elastic_tensor:  elastic_rot,
-		Critical_stress: tau_c,
-		// Force, U_curr, U_prev, K_tensor, K_inv, Stress зануляются автоматически
+}
+
+func (p *Particle) FindNeighbors(particles []Particle, horizon float64) {
+	for _, otherparticle := range particles {
+		if p.Index == otherparticle.Index {
+			continue
+		}
+		xi := vec_minus3x1(otherparticle.X_ref, p.X_ref)
+		dist := linalg_norm3x1(xi)
+		if dist <= horizon {
+			p.NeighborsIdx = append(p.NeighborsIdx, otherparticle.Index)
+		}
 	}
 }
 
 //----------------------Particle_class-------------------------------
 
-//----------------------Bicrystall_class-------------------------------
+// ----------------------Bicrystall_class-------------------------------
 type Bicrystal struct {
 	N_ferrite      int64
 	N_austenite    int64
@@ -395,10 +470,6 @@ type Bicrystal struct {
 	Horizon        float64
 	Z_max          float64
 	Particles      []Particle
-
-	// Critical_stretch_ferrite   float64
-	// Critical_stretch_austenite float64
-	// Critical_stretch_interface float64
 }
 
 func new_Bicrystal(n_ferrite, n_austenite, n_y, n_z int64, spacing, horizon, horizon_factor float64) Bicrystal {
@@ -431,31 +502,86 @@ func (bc *Bicrystal) GenerateParticles() {
 				y := float64(j) * bc.Spacing
 				z := float64(k) * bc.Spacing
 				x_ref := [3]float64{x, y, z}
-
-				// 2. Определяем фазу (феррит или аустенит)
 				phase_id := 0
 				if i >= bc.N_ferrite {
 					phase_id = 1
 				}
 
-				// 3. Создаем частицу и добавляем в срез
-				// (здесь ты вызываешь свой new_particle с нужными параметрами)
-
+				bc.Particles = append(bc.Particles, new_particle(particleIndex, x_ref, phase_id))
 				particleIndex++
-				bc.Particles = append(bc.Particles, particle)
 			}
 		}
 	}
 }
+func (bc *Bicrystal) update_position(dt, damping_coeff, loading_vel float64) {
+	for i := range bc.Particles {
+		particle := &bc.Particles[i]
+		if particle.X_ref[2] <= 0.0 {
+			particle.U_curr = [3]float64{0.0, 0.0, 0.0}
+		} else if particle.X_ref[2] >= bc.Z_max {
+			particle.U_curr[2] += loading_vel * dt
+		} else {
+			next_displacement := vec_scale3x1(vec_add3x1(vec_add3x1(vec_minus3x1(vec_scale3x1(particle.U_curr, 2.0), particle.U_prev), vec_scale3x1(particle.Force, (dt*dt)/rho)), vec_scale3x1(particle.U_prev, 0.5*dt*damping_coeff)), 1/(1.0+0.5*damping_coeff*dt))
+			particle.U_prev = particle.U_curr
+			particle.U_curr = next_displacement
+		}
+		particle.X_curr = vec_add3x1(particle.X_ref, particle.U_curr)
+	}
+}
+func (bc *Bicrystal) update_deformation_gradient() {
+	for i := range bc.Particles {
+		particle := &bc.Particles[i]
+		var F [3][3]float64
 
-//----------------------Bicrystall_class-------------------------------
+		for _, neighborIdx := range particle.NeighborsIdx {
+			neighbor := bc.Particles[neighborIdx]
+
+			// xi = x_ref_neighbor - x_ref_particle
+			xi := vec_minus3x1(neighbor.X_ref, particle.X_ref)
+
+			// dy = x_curr_neighbor - x_curr_particle
+			dy := vec_minus3x1(neighbor.X_curr, particle.X_curr)
+
+			// Весовая функция weight = exp(-(||xi||^2))
+			dist := linalg_norm3x1(xi)
+			weight := math.Exp(-(dist * dist))
+
+			// F += weight * (dy ⊗ xi) * Volume
+			outer := outer_mult_vec3x3(dy, xi)
+			scaledOuter := matr_and_number_mul3x3(outer, weight*bc.Volume)
+			F = matr_sum3x3(F, scaledOuter)
+		}
+
+		// Итоговый градиент деформации: F = F * K_inv
+		particle.F = matr_mul3x3(F, particle.K_inv)
+	}
+}
+
+func (bc *Bicrystal) ExportToTXT(filename string) error {
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Записываем заголовок (необязательно, но удобно для чтения)
+	fmt.Fprintln(file, "Index, X, Y, Z, Phase_id")
+
+	// Бежим по всем частицам и пишем их координаты и фазу
+	for _, p := range bc.Particles {
+		fmt.Fprintf(file, "%d, %.4f, %.4f, %.4f, %d\n",
+			p.Index,
+			p.X_ref[0], p.X_ref[1], p.X_ref[2],
+			p.Phase_id,
+		)
+	}
+
+	return nil
+}
+
+// ----------------------Bicrystall_class-------------------------------
 func main() {
-	const rho = 7800.0
 
-	const c11_ferrite = 230e9
-	const c12_ferrite = 135e9
-	const c44_ferrite = 115e9
-	const tau_c_ferrite = 150e6
 	//Направления скольжения феррита
 	bBCC := [12][3]float64{
 		{1.0, 1.0, 1.0}, {1.0, 1.0, 1.0},
@@ -475,10 +601,6 @@ func main() {
 		{1.0, 1.0, 0.0}, {0.0, 1.0, 1.0},
 	}
 
-	const c11_austenite = 198e9
-	const c12_austenite = 125e9
-	const c44_austenite = 122e9
-	const tau_c_austenite = 100e6
 	//Направления скольжения аустенита
 	bFCC := [12][3]float64{
 		{-1.0, 1.0, 0.0}, {1.0, 0.0, -1.0},
@@ -511,4 +633,20 @@ func main() {
 	austenite_elas_tens := build_elastic_tensor(c11_austenite, c12_austenite, c44_austenite)
 	_ = austenite_elas_tens
 	_ = ferrite_elas_tens
+
+	// Создаем бикристалл:
+	//n_ferrite = 10, n_austenite = 10, n_y = 5, n_z = 5, spacing = 1.0, horizon = ..., horizon_factor = 1.5
+	bc := new_Bicrystal(10, 10, 5, 5, 1.0, 0.0, 1.5)
+
+	// Генерируем сетку частиц
+	bc.GenerateParticles()
+
+	// Экспортируем в txt-файл
+	err := bc.ExportToTXT("particles_grid.txt")
+	if err != nil {
+		fmt.Println("Ошибка при записи файла:", err)
+		return
+	}
+
+	fmt.Printf("Успешно записано частиц: %d в файл particles_grid.txt\n", len(bc.Particles))
 }
