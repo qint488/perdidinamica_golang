@@ -99,12 +99,13 @@ func to_radians(degrees float64) float64 {
 }
 
 func transponir_tens3x3(tens [3][3]float64) [3][3]float64 {
+	var res [3][3]float64
 	for i := 0; i < 3; i++ {
 		for j := 0; j < 3; j++ {
-			tens[i][j], tens[j][i] = tens[j][i], tens[i][j]
+			res[i][j] = tens[j][i]
 		}
 	}
-	return tens
+	return res
 }
 
 //math Block generic format
@@ -242,6 +243,50 @@ func compute_plastic_velocity_gradient(stress_tens [3][3]float64, burgers_direct
 	return plastic_gradient
 }
 
+//----------------------Bond_class-------------------------------
+type Bond struct {
+	particle1        Particle
+	particle2        Particle
+	Bond_vec         [3]float64
+	Length0          float64
+	Weight           float64
+	Bond_status      int
+	Bond_type        int
+	Critical_stretch float64
+}
+
+func new_bond(particle1, particle2 Particle) Bond {
+	bondvec := [3]float64{(particle2.X_curr[0] - particle1.X_curr[0]), (particle2.X_curr[1] - particle1.X_curr[1]), (particle2.X_curr[2] - particle1.X_curr[2])}
+	length := linalg_norm3x1(bondvec)
+	weight := math.Exp(-(length * length))
+	bondtype := 0
+	critical_stretch := 0.0
+	if particle1.Phase_id == particle2.Phase_id {
+		if particle1.Phase_id == 0 {
+			bondtype = 0
+			critical_stretch = 0.04
+		} else {
+			bondtype = 1
+			critical_stretch = 0.06
+		}
+	} else {
+		bondtype = 2
+		critical_stretch = 0.005
+	}
+	return Bond{
+		particle1:        particle1,
+		particle2:        particle2,
+		Bond_vec:         bondvec,
+		Length0:          length,
+		Weight:           weight,
+		Bond_status:      1,
+		Bond_type:        bondtype,
+		Critical_stretch: critical_stretch,
+	}
+}
+
+//----------------------Bond_class-------------------------------
+
 //----------------------Particle_class-------------------------------
 type Particle struct {
 	Index  int
@@ -281,7 +326,7 @@ func new_particle(index, phase_id int, r, f, f_p [3][3]float64, ferrite_elastic_
 
 	r = [3][3]float64{
 		{cos_A, -sin_A, 0.0},
-		{-sin_A, cos_A, 0.0},
+		{sin_A, cos_A, 0.0},
 		{0.0, 0.0, 1.0},
 	}
 
@@ -289,6 +334,8 @@ func new_particle(index, phase_id int, r, f, f_p [3][3]float64, ferrite_elastic_
 	for i := 0; i < 3; i++ {
 		I[i][i] = 1.0
 	}
+	f = I
+	f_p = I
 	const (
 		FERRITE   = 0
 		AUSTENITE = 1
@@ -320,20 +367,88 @@ func new_particle(index, phase_id int, r, f, f_p [3][3]float64, ferrite_elastic_
 	return Particle{
 		Index:           index,
 		X_ref:           x_ref,
-		X_curr:          x_ref, // В начальный момент x_curr = x_ref
+		X_curr:          x_ref,
 		Phase_id:        phase_id,
-		Angle:           angle_deg,
-		R:               rotR,
-		F:               identity3x3,
-		F_p:             identity3x3,
+		Angle:           angle_rad,
+		R:               r,
+		F:               f,
+		F_p:             f_p,
 		Burgers_vec:     b_rot,
 		Normal_vec:      n_rot,
-		Elastic_tensor:  rotated_elastic,
-		Critical_stress: critical_stress,
-		// Поля Force, U_curr, U_prev, K_tensor, K_inv, Stress зануляются автоматически
+		Elastic_tensor:  elastic_rot,
+		Critical_stress: tau_c,
+		// Force, U_curr, U_prev, K_tensor, K_inv, Stress зануляются автоматически
 	}
 }
 
+//----------------------Particle_class-------------------------------
+
+//----------------------Bicrystall_class-------------------------------
+type Bicrystal struct {
+	N_ferrite      int64
+	N_austenite    int64
+	N_y            int64
+	N_z            int64
+	Spacing        float64
+	Horizon_factor float64
+	Volume         float64
+	Horizon        float64
+	Z_max          float64
+	Particles      []Particle
+
+	// Critical_stretch_ferrite   float64
+	// Critical_stretch_austenite float64
+	// Critical_stretch_interface float64
+}
+
+func new_Bicrystal(n_ferrite, n_austenite, n_y, n_z int64, spacing, horizon, horizon_factor float64) Bicrystal {
+	volume := spacing * spacing * spacing
+
+	horizon = horizon_factor*spacing + 0.01
+	z_max := (float64(n_z) - 1.0) * spacing
+
+	return Bicrystal{
+		N_ferrite:      n_ferrite,
+		N_austenite:    n_austenite,
+		N_y:            n_y,
+		N_z:            n_z,
+		Spacing:        spacing,
+		Horizon_factor: horizon_factor,
+		Volume:         volume,
+		Horizon:        horizon,
+		Z_max:          z_max,
+		Particles:      []Particle{},
+	}
+}
+
+func (bc *Bicrystal) GenerateParticles() {
+	total_x := bc.N_austenite + bc.N_ferrite
+	var particleIndex int64 = 0
+	for i := int64(0); i < total_x; i++ {
+		for j := int64(0); j < bc.N_y; j++ {
+			for k := int64(0); k < bc.N_z; k++ {
+				x := float64(i) * bc.Spacing
+				y := float64(j) * bc.Spacing
+				z := float64(k) * bc.Spacing
+				x_ref := [3]float64{x, y, z}
+
+				// 2. Определяем фазу (феррит или аустенит)
+				phase_id := 0
+				if i >= bc.N_ferrite {
+					phase_id = 1
+				}
+
+				// 3. Создаем частицу и добавляем в срез
+				// (здесь ты вызываешь свой new_particle с нужными параметрами)
+
+				particleIndex++
+				bc.Particles = append(bc.Particles, particle)
+			}
+		}
+	}
+}
+
+//----------------------Bicrystall_class-------------------------------
 func main() {
 	const rho = 7800.0
 
