@@ -18,6 +18,9 @@ const c12_austenite = 125e9
 const c44_austenite = 122e9
 const tau_c_austenite = 100e6
 
+const gamma_0 = 2e-5
+const n_exp = 20.0
+
 // math Block 3x3 or 3x1 format
 func normalize3x1(v [3]float64) [3]float64 {
 	length := math.Sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2])
@@ -619,8 +622,6 @@ func main() {
 		{-1.0, -1.0, 1.0}, {-1.0, -1.0, 1.0},
 	}
 
-	const gamma_0 = 2e-5
-	const n_exp = 20.0
 	for i := 0; i < 12; i++ {
 		bBCC[i] = normalize3x1(bBCC[i])
 		nBCC[i] = normalize3x1(nBCC[i])
